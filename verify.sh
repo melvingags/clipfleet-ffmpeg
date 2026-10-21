@@ -15,14 +15,20 @@ for b in "$FF" "$FP"; do
   [ -z "$bad" ] || { echo "$(basename "$b") needs files a Mac does not have: $bad"; exit 1; }
   otool -l "$b" | grep -A4 LC_BUILD_VERSION | grep -q "minos 14.0" || { echo "$(basename "$b") is not for macOS 14"; exit 1; }
 done
-"$FF" -hide_banner -buildconf | grep -q -- --enable-pthreads
+conf="$("$FF" -hide_banner -buildconf)"
+[[ "$conf" == *--enable-pthreads* ]] || { echo "ffmpeg was built without threads"; exit 1; }
 
 for need in filter=ass filter=subtitles filter=overlay filter=boxblur filter=silencedetect filter=volumedetect \
   encoder=libx264 encoder=h264_videotoolbox encoder=aac encoder=png encoder=pcm_s16le \
   decoder=h264 decoder=hevc decoder=vp9 decoder=libdav1d decoder=aac decoder=opus decoder=png \
   demuxer=hls muxer=hls demuxer=concat muxer=mp4 muxer=segment; do
-  out="$("$FF" -hide_banner -h "$need" 2>&1 || true)"
-  if [ -z "$out" ] || echo "$out" | grep -qiE "unknown|not recognized"; then echo "missing: $need"; exit 1; fi
+  # The first line names it ("Filter overlay", "Encoder libx264 [...]") or says it is unknown.
+  name="${need#*=}"
+  first="$("$FF" -hide_banner -h "$need" 2>&1 | head -n 1 || true)"
+  case "$first" in
+    "Filter $name" | "Encoder $name "* | "Decoder $name "* | "Demuxer $name "* | "Muxer $name "*) ;;
+    *) echo "missing: $need ($first)"; exit 1 ;;
+  esac
 done
 
 # A folder with a space in its name, as the Mac's "Application Support" has.
