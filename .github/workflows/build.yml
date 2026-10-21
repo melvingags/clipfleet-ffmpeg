@@ -1,0 +1,59 @@
+name: ffmpeg for Apple-chip Macs
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install meson ninja pkgconf
+      - run: bash build.sh
+      - run: bash verify.sh out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ffmpeg-mac-arm64
+          path: out/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sources
+          path: sources/
+
+  # The oldest macOS the app supports, and the newest.
+  check:
+    needs: build
+    strategy:
+      matrix:
+        os: [macos-14, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ffmpeg-mac-arm64
+          path: out
+      - run: chmod +x out/ffmpeg out/ffprobe && bash verify.sh out
+
+  release:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dl
+      - name: Publish ffmpeg and ffprobe, with the sources they were built from
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x dl/ffmpeg-mac-arm64/ffmpeg dl/ffmpeg-mac-arm64/ffprobe
+          tar -czf ffmpeg-mac-arm64.tar.gz -C dl/ffmpeg-mac-arm64 ffmpeg ffprobe
+          mv dl/sources/* .
+          sha256sum ffmpeg-mac-arm64.tar.gz *.tar.xz *.tar.gz | sort -u -k2 > SHA256SUMS
+          cat SHA256SUMS
+          gh release create v9.0.2-1 --repo "$GITHUB_REPOSITORY" --title "ffmpeg 9.0.2 for Apple-chip Macs" \
+            --notes "ffmpeg and ffprobe 9.0.2 for Apple-chip Macs, macOS 14 or later, built by build.sh from the official sources attached here. GPL v2 or later." \
+            ffmpeg-mac-arm64.tar.gz SHA256SUMS *.tar.xz $(ls *.tar.gz | grep -v '^ffmpeg-mac-arm64')
