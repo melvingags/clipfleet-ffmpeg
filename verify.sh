@@ -24,7 +24,7 @@ else
   . /etc/os-release
   echo "$PRETTY_NAME, $(uname -m)"
   for b in "$FF" "$FP"; do
-    file "$b" | grep -qE "x86-64.*static(-pie)? linked" || { echo "$(basename "$b") is not one self-contained x86-64 program: $(file "$b")"; exit 1; }
+    file "$b" | grep -qE "x86-64.*(statically|static-pie) linked" || { echo "$(basename "$b") is not one self-contained x86-64 program: $(file "$b")"; exit 1; }
   done
   FONT="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
   FAMILY="DejaVu Sans"
