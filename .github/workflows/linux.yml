@@ -1,0 +1,69 @@
+name: ffmpeg for Linux
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build inside Alpine Linux, so everything is built in
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w alpine:3.22 sh -c '
+            apk add --no-cache bash build-base nasm meson ninja pkgconf gperf python3 git curl tar xz \
+              zlib-dev zlib-static bzip2-dev bzip2-static linux-headers &&
+            bash build-linux.sh'
+          sudo chown -R "$(id -u):$(id -g)" out sources
+      - name: Check it here
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y --no-install-recommends fonts-dejavu-core fonts-liberation file
+          bash verify.sh out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ffmpeg-linux-x64
+          path: out/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sources-linux
+          path: sources/
+
+  # The oldest Ubuntu the app supports, and the newest.
+  check:
+    needs: build
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: ffmpeg-linux-x64
+          path: out
+      - run: |
+          sudo apt-get update -q && sudo apt-get install -y --no-install-recommends fonts-dejavu-core fonts-liberation file
+          chmod +x out/ffmpeg out/ffprobe && bash verify.sh out
+
+  release:
+    needs: check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dl
+      - name: Publish ffmpeg and ffprobe, with the sources they were built from
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x dl/ffmpeg-linux-x64/ffmpeg dl/ffmpeg-linux-x64/ffprobe
+          tar -czf ffmpeg-linux-x64.tar.gz -C dl/ffmpeg-linux-x64 ffmpeg ffprobe
+          mv dl/sources-linux/* .
+          sha256sum ffmpeg-linux-x64.tar.gz *.tar.xz *.tar.gz | sort -u -k2 > SHA256SUMS
+          cat SHA256SUMS
+          gh release create linux-v9.0.2-1 --repo "$GITHUB_REPOSITORY" --title "ffmpeg 9.0.2 for Linux (x86-64)" \
+            --notes "ffmpeg and ffprobe 9.0.2 for Linux on x86-64, one self-contained program each, built by build-linux.sh from the sources attached here. GPL v2 or later." \
+            ffmpeg-linux-x64.tar.gz SHA256SUMS *.tar.xz $(ls *.tar.gz | grep -v '^ffmpeg-linux-x64')
